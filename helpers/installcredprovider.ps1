@@ -12,7 +12,9 @@ param(
     # override existing cred provider with the latest version
     [switch]$Force,
     # install the version specified
-    [string]$Version
+    [string]$Version,
+    # If this script is not being run behind a proxy, the script will work without the proxy parameter.
+    [string]$Proxy
 )
 
 $script:ErrorActionPreference='Stop'
@@ -50,6 +52,20 @@ if (!$Force) {
     }
 }
 
+# Proxy settings
+if ($Proxy) {
+    Write-Host "Setting environment variable ALL_PROXY to $Proxy"
+    $env:ALL_PROXY=$Proxy
+
+    if (![System.Net.WebRequest]::DefaultWebProxy.Credentials) {
+        [System.Net.WebRequest]::DefaultWebProxy.Credentials = Get-Credential
+    }
+    
+    [System.Net.Webrequest]::defaultwebproxy = new-object System.Net.Webproxy($Proxy)
+    [System.Net.Webrequest]::defaultwebproxy.credentials = [System.Net.WredentialCache]::DefaultNetworkCredentials
+    [System.Net.Webrequest]::defaultwebproxy.BypassProxyOnLocal = $true
+}
+
 # Get the zip file from the GitHub release
 $releaseUrlBase = "https://api.github.com/repos/Microsoft/artifacts-credprovider/releases"
 $versionError = "Unable to find the release version $Version from $releaseUrlBase"
@@ -80,7 +96,6 @@ if ($AddNetfx -eq $True) {
 }
 Write-Verbose "Using $zipFile"
 
-$zipErrorString = "Unable to resolve the Credential Provider zip file from $releaseUrl"
 try {
     Write-Host "Fetching release $releaseUrl"
     $release = Invoke-WebRequest -UseBasicParsing $releaseUrl
@@ -88,12 +103,12 @@ try {
     $zipAsset = $releaseJson.assets | ? { $_.name -eq $zipFile }
     $packageSourceUrl = $zipAsset.browser_download_url
 } catch {
-    Write-Error $zipErrorString
+    Write-Error "Error occurred when trying to resolve the Credential Provider zip file from $releaseUrl"
     return
 }
 
 if (!$packageSourceUrl) {
-    Write-Error $zipErrorString
+    Write-Error "Unable to resolve the Credential Provider zip file from $releaseUrl"
     return
 }
 
